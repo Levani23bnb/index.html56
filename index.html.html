@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ARC Stake | Earn USDC</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #050511 0%, #0a0a2e 100%);
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(16, 16, 30, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(0, 255, 128, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+        }
+        .neon-text {
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+        }
+        .btn-primary {
+            background: linear-gradient(90deg, #00b862 0%, #00ff88 100%);
+            color: #000;
+            transition: all 0.3s ease;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.6);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Header -->
+    <div class="absolute top-6 left-6 flex items-center gap-2">
+        <div class="w-8 h-8 bg-green-500 rounded-full animate-pulse shadow-[0_0_15px_#00ff88]"></div>
+        <h1 class="text-2xl font-bold tracking-wider">ARC <span class="neon-text">Protocol</span></h1>
+    </div>
+
+    <!-- Main Card -->
+    <div class="glass-panel rounded-2xl p-8 w-full max-w-md relative overflow-hidden">
+        
+        <!-- Decoration -->
+        <div class="absolute -top-16 -right-16 w-40 h-40 bg-blue-600 rounded-full blur-[90px] opacity-20"></div>
+        <div class="absolute -bottom-16 -left-16 w-40 h-40 bg-green-600 rounded-full blur-[90px] opacity-20"></div>
+
+        <div class="text-center mb-6">
+            <h2 class="text-xl font-light opacity-90">Staking Pool <span class="font-bold text-blue-400">USDC</span></h2>
+            <div id="apyContainer" class="mt-2 text-sm bg-white/5 inline-block px-3 py-1 rounded-full border border-white/10 hidden">
+                🔥 APY: <span id="apyValue" class="font-bold text-yellow-400">Loading...</span>
+            </div>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-2 gap-4 mb-8">
+            <div class="bg-black/40 p-4 rounded-xl text-center border border-white/5 hover:border-white/10 transition-colors">
+                <p class="text-xs text-gray-400 uppercase tracking-wider">Your Stake</p>
+                <p class="text-xl font-bold text-white mt-1" id="stakedBalance">0.00</p>
+                <span class="text-xs text-blue-400 font-mono">USDC</span>
+            </div>
+            <div class="bg-black/40 p-4 rounded-xl text-center border border-white/5 hover:border-white/10 transition-colors">
+                <p class="text-xs text-gray-400 uppercase tracking-wider">Rewards</p>
+                <p class="text-xl font-bold neon-text mt-1" id="earnedRewards">0.00</p>
+                <span class="text-xs text-green-400 font-mono">USDC</span>
+            </div>
+        </div>
+
+        <!-- Wallet / Actions -->
+        <div class="space-y-4">
+            <button id="connectBtn" class="w-full btn-primary font-bold py-3.5 rounded-xl uppercase tracking-widest text-sm shadow-lg">
+                Connect Wallet
+            </button>
+
+            <div id="controls" class="hidden space-y-4">
+                <!-- Input -->
+                <div class="relative group">
+                    <input type="number" id="stakeAmount" placeholder="0.0" class="w-full bg-black/50 border border-gray-700 text-white rounded-xl p-4 pr-16 focus:outline-none focus:border-green-500 transition-colors placeholder-gray-600 font-mono">
+                    <span class="absolute right-4 top-4 text-gray-400 font-bold text-sm">USDC</span>
+                </div>
+                
+                <!-- Buttons -->
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="approveAndStake()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-blue-900/30">
+                        STAKE 📥
+                    </button>
+                    <button onclick="unstake()" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-all border border-gray-600">
+                        UNSTAKE 📤
+                    </button>
+                </div>
+                
+                <!-- Claim Only Button -->
+                <button onclick="claimRewards()" class="w-full bg-green-900/40 hover:bg-green-900/60 text-green-300 font-semibold py-2 rounded-lg border border-green-500/30 text-xs uppercase tracking-wide transition-all">
+                    Claim Rewards Only
+                </button>
+
+                <!-- Status -->
+                <p id="statusMsg" class="text-center text-xs text-gray-400 mt-2 h-4 animate-pulse"></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script -->
+    <script>
+        // CONFIGURATION
+        const STAKING_CONTRACT_ADDRESS = "0x925faBFf046718aD29Eb8318769b320359a9d5e4";
+        const TOKEN_CONTRACT_ADDRESS = "0x3600000000000000000000000000000000000000"; 
+        const CHAIN_ID_DECIMAL = 5042002; 
+        const CHAIN_ID_HEX = "0x" + CHAIN_ID_DECIMAL.toString(16);
+
+        // EXTRA ABIS ADDED FOR APY CALCULATION
+        const STAKING_ABI = [
+            "function stake(uint256 _amount) external",
+            "function unstake(uint256 _amount) external",
+            "function getReward() external",
+            "function pendingReward(address _user) public view returns (uint256)",
+            "function balances(address) public view returns (uint256)",
+            "function rewardRate() external view returns (uint256)", 
+            "function totalSupply() external view returns (uint256)" 
+        ];
+        
+        const ERC20_ABI = [
+            "function approve(address spender, uint256 amount) external returns (bool)",
+            "function allowance(address owner, address spender) external view returns (uint256)",
+            "function decimals() external view returns (uint8)",
+            "function balanceOf(address account) external view returns (uint256)"
+        ];
+
+        let provider, signer, stakingContract, tokenContract;
+        let userAddress;
+        let tokenDecimals = 18; 
+
+        const connectBtn = document.getElementById("connectBtn");
+        const controls = document.getElementById("controls");
+        const statusMsg = document.getElementById("statusMsg");
+        const apyContainer = document.getElementById("apyContainer");
+
+        async function connectWallet() {
+            if (!window.ethereum) return alert("Please install MetaMask!");
+
+            try {
+                provider = new ethers.BrowserProvider(window.ethereum);
+                const accounts = await provider.send("eth_requestAccounts", []);
+                userAddress = accounts[0];
+
+                const network = await provider.getNetwork();
+                if (Number(network.chainId) !== CHAIN_ID_DECIMAL) {
+                    try {
+                        await window.ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: CHAIN_ID_HEX }],
+                        });
+                    } catch (switchError) {
+                        return alert("Wrong Network! Switch to ARC Testnet.");
+                    }
+                }
+
+                signer = await provider.getSigner();
+                stakingContract = new ethers.Contract(STAKING_CONTRACT_ADDRESS, STAKING_ABI, signer);
+                tokenContract = new ethers.Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, signer);
+
+                // Detect Decimals
+                try {
+                    tokenDecimals = await tokenContract.decimals();
+                } catch(e) { console.warn("Using default 18 decimals"); }
+
+                // UI Updates
+                connectBtn.classList.add("hidden");
+                controls.classList.remove("hidden");
+                apyContainer.classList.remove("hidden");
+                statusMsg.innerText = "Connected";
+                
+                refreshData();
+                setInterval(refreshData, 5000); // Auto-refresh every 5s
+
+            } catch (error) {
+                console.error(error);
+                statusMsg.innerText = "Connection Failed";
+            }
+        }
+
+        async function refreshData() {
+            if(!stakingContract) return;
+            try {
+                // 1. User Stats
+                const stakedRaw = await stakingContract.balances(userAddress);
+                const rewardRaw = await stakingContract.pendingReward(userAddress);
+                
+                document.getElementById("stakedBalance").innerText = ethers.formatUnits(stakedRaw, tokenDecimals);
+                // Rewards usually assumed to be 18 decimals in standard logic, but if token is 6, logic might vary.
+                // We use standard formatUnits(x, 18) for rewards mostly. If it looks wrong, change to tokenDecimals.
+                document.getElementById("earnedRewards").innerText = parseFloat(ethers.formatUnits(rewardRaw, 18)).toFixed(6);
+
+                // 2. APY Calculation 🧮
+                // Formula: (RewardRatePerSecond * 31536000 * 100) / TotalStaked
+                const rewardRate = await stakingContract.rewardRate();
+                const totalStaked = await stakingContract.totalSupply();
+
+                if (totalStaked > 0) {
+                    // Convert everything to BigInt for precision, but simple float math for display is okay
+                    // RewardRate is per second (usually 18 decimals logic inside).
+                    // TotalStaked follows Token Decimals.
+                    
+                    // Normalize to standard units
+                    const rateFormatted = parseFloat(ethers.formatUnits(rewardRate, 18)); 
+                    const totalFormatted = parseFloat(ethers.formatUnits(totalStaked, tokenDecimals));
+
+                    const yearlyRewards = rateFormatted * 31536000; // Seconds in a year
+                    const apy = (yearlyRewards / totalFormatted) * 100;
+
+                    document.getElementById("apyValue").innerText = apy.toFixed(2) + "%";
+                } else {
+                    document.getElementById("apyValue").innerText = "Infinity%";
+                }
+
+            } catch (e) {
+                console.log("Data fetch error (APY might rely on diff ABI):", e);
+            }
+        }
+
+        async function approveAndStake() {
+            const amountStr = document.getElementById("stakeAmount").value;
+            if(!amountStr || amountStr <= 0) return alert("Enter amount!");
+            statusMsg.innerText = "Processing...";
+            
+            try {
+                const amountWei = ethers.parseUnits(amountStr, tokenDecimals);
+                
+                // Bal Check
+                const balance = await tokenContract.balanceOf(userAddress);
+                if(balance < amountWei) throw new Error("Insufficient Balance!");
+
+                // Allowance
+                const allowance = await tokenContract.allowance(userAddress, STAKING_CONTRACT_ADDRESS);
+                if (allowance < amountWei) {
+                    statusMsg.innerText = "Approving...";
+                    const tx1 = await tokenContract.approve(STAKING_CONTRACT_ADDRESS, amountWei);
+                    await tx1.wait();
+                }
+
+                statusMsg.innerText = "Staking...";
+                const tx2 = await stakingContract.stake(amountWei);
+                await tx2.wait();
+                
+                statusMsg.innerText = "✅ Success!";
+                document.getElementById("stakeAmount").value = "";
+                refreshData();
+            } catch (err) {
+                console.error(err);
+                statusMsg.innerText = "Error: " + (err.reason || err.message);
+            }
+        }
+
+        async function unstake() {
+            const amountStr = document.getElementById("stakeAmount").value;
+            if(!amountStr) return alert("Enter amount!");
+            statusMsg.innerText = "Unstaking...";
+            try {
+                const amountWei = ethers.parseUnits(amountStr, tokenDecimals);
+                const tx = await stakingContract.unstake(amountWei);
+                await tx.wait();
+                statusMsg.innerText = "✅ Unstaked!";
+                refreshData();
+            } catch (err) {
+                console.error(err);
+                statusMsg.innerText = "Error!";
+            }
+        }
+
+        async function claimRewards() {
+            statusMsg.innerText = "Claiming...";
+            try {
+                const tx = await stakingContract.getReward();
+                await tx.wait();
+                statusMsg.innerText = "✅ Claimed!";
+                refreshData();
+            } catch (err) {
+                console.error(err);
+                statusMsg.innerText = "Error!";
+            }
+        }
+
+        connectBtn.addEventListener("click", connectWallet);
+    </script>
+</body>
+</html>
